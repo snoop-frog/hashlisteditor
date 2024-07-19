@@ -86,11 +86,22 @@
         }
         /* Download button specific styling */
         #downloadBtn {
-            display: block;
+            display: none; /* initially hidden */
             width: auto;
             margin: 20px auto;
             background-color: #333355;
             border: none;
+        }
+        /* Error Message */
+        .error-message {
+            color: red;
+            text-align: center;
+            animation: blinker 1s linear infinite;
+        }
+        @keyframes blinker {
+          50% {
+            opacity: 0;
+          }
         }
     </style>
 </head>
@@ -101,11 +112,12 @@
             <div class="status-bar">Download Hash list as a JSON from Magic Eden Creators Hub</div>
             <input type="file" id="fileInput">
             <input type="text" id="filterInput" placeholder="Enter value or trait_type to remove from the collection">
-            <button onclick="editJson()">Edit Hash List</button>
+            <button onclick="editJson()">Clean Up Hash List</button>
             <input type="text" id="findInput" placeholder="Find value or trait_type in the collection">
             <input type="text" id="replaceInput" placeholder="Replace value or trait_type in the collection">
             <button onclick="findAndReplace()">Find and Replace</button>
             <button id="downloadBtn" onclick="downloadJson()">Download New Hash List for ME</button>
+            <div id="errorMessage" class="error-message"></div>
             <pre id="result"></pre>
         </div>
     </div>
@@ -116,8 +128,17 @@
         document.getElementById('fileInput').addEventListener('change', function(event) {
             const reader = new FileReader();
             reader.onload = function() {
-                jsonData = JSON.parse(reader.result);
-                updateDisplay();
+                try {
+                    jsonData = JSON.parse(reader.result);
+                    document.getElementById('downloadBtn').style.display = 'block';
+                    document.getElementById('errorMessage').textContent = '';
+                    updateDisplay();
+                } catch (error) {
+                    jsonData = null;
+                    document.getElementById('result').textContent = '';
+                    document.getElementById('downloadBtn').style.display = 'none';
+                    document.getElementById('errorMessage').textContent = 'NOT A VALID JSON FORMAT';
+                }
             };
             reader.readAsText(event.target.files[0]);
         });
@@ -138,32 +159,61 @@
             updateDisplay();
         }
 
-        function findAndReplace() {
-            const findValue = document.getElementById('findInput').value;
-            const replaceValue = document.getElementById('replaceInput').value;
-            if (!jsonData || !findValue) return;
+function findAndReplace() {
+    const findValue = document.getElementById('findInput').value;
+    const replaceValue = document.getElementById('replaceInput').value;
+    if (!jsonData || !findValue) return;
 
-            jsonData.forEach(item => {
-                if (item.meta && item.meta.attributes) {
-                    item.meta.attributes.forEach(attr => {
-                        if (attr.trait_type === findValue) {
-                            attr.trait_type = replaceValue;
-                        }
-                        if (attr.value === findValue) {
-                            attr.value = replaceValue;
-                        }
-                    });
+    let isModified = false; // Flag to track if any changes were made
+
+    // Function to recursively process each key-value pair
+    function processObject(obj) {
+        for (let key in obj) {
+            if (typeof obj[key] === 'string') {
+                // Check if the key or value contains the findValue
+                if (key.includes(findValue)) {
+                    // If the key matches, we need a new key with the replaced value
+                    const newKey = key.replaceAll(findValue, replaceValue);
+                    obj[newKey] = obj[key]; // Assign the value to the new key
+                    delete obj[key]; // Delete the old key
+                    key = newKey; // Update the key variable to reflect the change
+                    isModified = true;
                 }
-            });
-
-            updateDisplay();
+                // Replace occurrences of findValue within the value
+                if (obj[key].includes(findValue)) {
+                    obj[key] = obj[key].replaceAll(findValue, replaceValue);
+                    isModified = true;
+                }
+            } else if (typeof obj[key] === 'object') {
+                processObject(obj[key]); // Recursively process objects and arrays
+            }
         }
+    }
+
+    jsonData.forEach(item => {
+        processObject(item); // Process each item in the JSON array
+    });
+
+    if (isModified) { // Only update the display if changes were made
+        updateDisplay();
+    }
+}
+
+function updateDisplay() {
+    document.getElementById('result').textContent = JSON.stringify(jsonData, null, 2);
+}
+
 
         function updateDisplay() {
-            document.getElementById('result').textContent = JSON.stringify(jsonData, null, 2);
+            if (jsonData) {
+                document.getElementById('result').textContent = JSON.stringify(jsonData, null, 2);
+                document.getElementById('downloadBtn').style.display = 'block';
+                document.getElementById('errorMessage').textContent = '';
+            }
         }
 
         function downloadJson() {
+            if (!jsonData) return;
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(jsonData));
             const downloadAnchorNode = document.createElement('a');
             downloadAnchorNode.setAttribute("href", dataStr);
